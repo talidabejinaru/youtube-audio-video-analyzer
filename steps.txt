@@ -1,0 +1,65 @@
+Steps to Set Up the Environment
+
+1. System Information
+- Operating System: Ubuntu 18.04.6 LTS (running on VirtualBox)
+
+$ lsb_release -a
+# Output:
+# No LSB modules are available.
+# Distributor ID:	Ubuntu
+# Description:	Ubuntu 18.04.6 LTS
+# Release:	18.04
+# Codename:	bionic
+
+
+2. Python and Pip Versions
+-Python was already installed on the system:
+
+$ python3 --version
+# Output: Python 3.6.9
+
+If Python3 is not already installed, follow these steps:
+$ sudo apt update
+$ sudo apt install python3
+
+-Pip version check and warning message
+
+$ pip3 --version
+# Output:
+# WARNING: pip is being invoked by an old script wrapper. This will fail in a future version of pip.
+# Please see https://github.com/pypa/pip/issues/5599 for advice on fixing the underlying issue.
+# To avoid this problem you can invoke Python with '-m pip' instead of running pip directly.
+# pip 21.3.1 from /usr/local/lib/python3.6/dist-packages/pip (python 3.6)
+
+Due to the warning, I will use python3 -m pip install <package> instead of pip3 install <package> to install libraries.
+
+If pip3 is not already installed, follow these steps:
+sudo apt install python3-pip
+
+3. Installing Required Libraries
+
+-Selenium
+python3 -m pip install selenium
+
+-Numpy
+python3 -m pip install numpy
+
+-OpenCV
+python3 -m pip install opencv-python 
+
+-PyAudio
+
+python3 -m pip install python3-pyaudio
+/usr/lib/python3/dist-packages/secretstorage/dhcrypto.py:15: CryptographyDeprecationWarning: Python 3.6 is no longer supported by the Python core team. Therefore, support for it is deprecated in cryptography. The next release of cryptography will remove support for Python 3.6.
+  from cryptography.utils import int_from_bytes
+Defaulting to user installation because normal site-packages is not writeable
+ERROR: Could not find a version that satisfies the requirement python3-pyaudio (from versions: none)
+ERROR: No matching distribution found for python3-pyaudio
+
+Issue: No compatible version found in pip for Python 3.6.
+Solution: Install via apt instead of pip
+
+sudo apt-get install python3-pyaudio
+
+-PyAutoGUI
+python3 -m pip install pyautogui
