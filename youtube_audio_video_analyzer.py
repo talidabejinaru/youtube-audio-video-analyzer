@@ -21,10 +21,12 @@ import logging
 import socket
 import scipy.io.wavfile as wav
 import csv
+from selenium.webdriver.firefox.options import Options
 
 # Global variables
 RECORDING_TIME_IN_SEC = 120
 stop_threads = threading.Event()
+
 driver_path = "/home/talida/Desktop/AROBS/geckodriver"
 
 # Set up the log configuration
@@ -103,73 +105,94 @@ class Executer:
         start_time = time.time()
         driver = None
         
-        logging.info(f"Launching browser using driver at {driver_path}")
-        driver = webdriver.Firefox(executable_path=driver_path)
-        
-        # Maximizing the browser window
-        driver.maximize_window()
-
-        # Navigate to YouTube
-        url = "https://www.youtube.com"
         try:
-            logging.info(f"Navigating to {url}")
-            driver.get(url)
-        except Exception as e:
-            logging.error(f"Error loading YouTube: {e}")
-            time.sleep(20) 
-            driver.get(url)  # try again
+            logging.info(f"Launching browser using driver at {driver_path}")
+             # Create an instance of Options to configure the browser settings
+            options = Options()
+            # It will open the browser window)
+            options.headless = False 
+            
+            driver = webdriver.Firefox(executable_path=driver_path, options=options)
 
-        time.sleep(8)  # Waits for the page to load completely
+            driver.set_page_load_timeout(10) # Set the page load timeout
+            
+            # Maximizing the browser window
+            driver.maximize_window()
 
-        try:
-            # Search for accept button
-            accept_button = WebDriverWait(driver, 20).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Accept all') or contains(., 'Accept')]"))
+            # Navigate to YouTube
+            url = "https://www.youtube.com"
+            try:
+                logging.info(f"Navigating to {url}")
+                driver.get(url)
+            except Exception as e:
+                logging.error(f"Error loading YouTube: {e}. Retrying...")
+                time.sleep(8) 
+                try:
+                    driver.get(url)  # try again
+                except Exception as e:
+                    logging.error(f"Retry failed. Unable to access {url}: {e}")
+                    raise Exception("Cannot access YouTube")
+
+            time.sleep(8)  # Waits for the page to load completely
+
+            try:
+                # Search for accept button
+                accept_button = WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Accept all') or contains(., 'Accept')]"))
+                )
+                accept_button.click()
+                logging.info("The cookie popup was successfully closed!")
+
+            except Exception as e:
+                logging.warning(f"No cookie popup found or an error occurred: {e}")
+
+            # Find the search bar and search for a video
+            logging.info(f"Searching for a video: {video_name}")
+            search_box = driver.find_element(By.NAME, "search_query")
+            logging.info(f"Found the search bar")
+            search_box.send_keys(video_name)
+            logging.info(f"Entered '{video_name}' into the search bar")
+            search_box.send_keys(Keys.RETURN)
+            logging.info(f"Pressed enter")
+
+            # Waits for the results to load
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_all_elements_located((By.XPATH, "//a[@id='video-title']"))
             )
-            accept_button.click()
-            logging.info("The cookie popup was successfully closed!")
 
+            # Find a random video in the results and click on it
+            try:
+                logging.info(f"Selecting a random video from the results")
+                videos = driver.find_elements(By.XPATH, "//a[@id='video-title']")
+                random_video = random.choice(videos)  
+                random_video.click()
+                logging.info(f"A random video has been selected")
+
+            except Exception as e:
+                logging.error("No results found or error occurred during video selection.")
+
+            # Move the cursor over the video fullscreen button and click on it
+            logging.info("Trying to click the fullscreen button")
+            fullscreen_button = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "button.ytp-fullscreen-button")))
+
+            ActionChains(driver).move_to_element(fullscreen_button).perform()
+            fullscreen_button.click()
+            logging.info("Fullscreen button clicked successfully")
+        
+
+            # Wait or close after RECORDING_TIME_IN_SEC seconds
+            while time.time() - start_time < RECORDING_TIME_IN_SEC and not stop_threads.is_set():
+                time.sleep(1)
         except Exception as e:
-            logging.warning(f"No cookie popup found or an error occurred: {e}")
-
-        # Find the search bar and search for a video
-        logging.info(f"Searching for a video: {video_name}")
-        search_box = driver.find_element(By.NAME, "search_query")
-        logging.info(f"Found the search bar")
-        search_box.send_keys(video_name)
-        logging.info(f"Entered '{video_name}' into the search bar")
-        search_box.send_keys(Keys.RETURN)
-        logging.info(f"Pressed enter")
-
-        # Waits for the results to load
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_all_elements_located((By.XPATH, "//a[@id='video-title']"))
-        )
-
-        # Find a random video in the results and click on it
-        try:
-            logging.info(f"Selecting a random video from the results")
-            videos = driver.find_elements(By.XPATH, "//a[@id='video-title']")
-            random_video = random.choice(videos)  
-            random_video.click()
-            logging.info(f"A random video has been selected")
-
-        except Exception as e:
-            logging.error("No results found or error occurred during video selection.")
-
-        # Move the cursor over the video fullscreen button and click on it
-        logging.info("Trying to click the fullscreen button")
-        fullscreen_button = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "button.ytp-fullscreen-button")))
-
-        ActionChains(driver).move_to_element(fullscreen_button).perform()
-        fullscreen_button.click()
-        logging.info("Fullscreen button clicked successfully")
-
-        # Wait or close after RECORDING_TIME_IN_SEC seconds
-        while time.time() - start_time < RECORDING_TIME_IN_SEC and not stop_threads.is_set():
-            time.sleep(1)
-
-        driver.quit()
+            logging.error(f"An error occurred during the YouTube video play process: {e}")
+            if driver:
+                logging.info("Closing browser due to error.")
+                driver.quit()
+            sys.exit(1)  # Close the script
+        finally:
+            if driver:
+                logging.info("Quitting the browser")
+                driver.quit()
 
 
     def execute(self):
