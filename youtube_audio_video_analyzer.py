@@ -6,6 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.firefox.options import Options
+from selenium.common.exceptions import ElementNotInteractableException
+from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import WebDriverException
 import time
 import sys
 import random
@@ -21,12 +25,14 @@ import logging
 import socket
 import scipy.io.wavfile as wav
 import csv
-from selenium.webdriver.firefox.options import Options
+import requests
+
 
 # Global variables
-RECORDING_TIME_IN_SEC = 120
-stop_threads = threading.Event()
+RECORDING_TIME_IN_SEC = 120 # Time duration for recording
+stop_threads = threading.Event() # Synchronization event for thread control
 
+# Path to the geckodriver executable
 driver_path = "/home/talida/Desktop/AROBS/geckodriver"
 
 # Set up the log configuration
@@ -38,26 +44,34 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 
-# Check if the video name is provided for the search
+# Check if the video name is provided as a command-line argument
 if len(sys.argv) < 2:
     print("Please enter a video name")
     sys.exit(1)
 
-# The video name from the command-line arguments
+# Combine arguments into a single video name string
 search_arg = " ".join(sys.argv[1:])
 
+# Class for executing the main functionality (video/audio recording and web automation)
 class Executer:
 
     def __init__(self, audio_record, video_record):
+        """
+        Initializes the Executer class with instances of AudioRecord and VideoRecord.
+        """
         # Accept instances of AudioRecord and VideoRecord as parameters
         self.audio_record = audio_record
         self.video_record = video_record
-        self.audio_name = "audio.wav"
-        self.video_name = "video.mp4"
-        self.audio_levels = "audio_levels.csv"
+        self.audio_name = "audio.wav" # Default audio filename
+        self.video_name = "video.mp4" # Default video filename
+        self.audio_levels = "audio_levels.csv" # Default CSVfile for audio levels
+        self.driver = None # Selenium WebDriver instance
 
-    # Cleanup function for deleting temporary files
+
     def clean_up(self):
+        """
+        Cleans up temporary files (audio, video and audio level CSV)
+        """
         logging.info("Starting cleanup process...")
         try:
             # Delete the audio file if it exists
@@ -68,7 +82,7 @@ class Executer:
             else:
                 logging.info(f"Audio file does not exist: {self.audio_name}")
 
-            #Delete the video file if it exists
+            # Delete the video file if it exists
             if os.path.exists(self.video_name):
                 logging.info(f"Try to delete video file: {self.video_name}")
                 os.remove(self.video_name)
@@ -76,8 +90,7 @@ class Executer:
             else:
                 logging.info(f"Video file does not exist: {self.video_name}")
 
-
-             # Delete the audio levels CSV if it exists
+            # Delete the audio levels CSV if it exists
             if os.path.exists(self.audio_levels):
                 logging.info(f"Try to delete audio_levels CSV file: {self.audio_levels}")
                 os.remove(self.audio_levels)
@@ -88,9 +101,12 @@ class Executer:
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")
 
-    # Check internet connection
+
     @staticmethod
     def check_internet_connection(host="8.8.8.8", port=53, timeout=5):
+        """
+        Checks if an internet connection is available by pinging a host
+        """
         logging.info("Checking internet connectivity...")
         try:
             socket.setdefaulttimeout(timeout)
@@ -101,69 +117,113 @@ class Executer:
             logging.error(f"Network error: {ex}")
             return False
 
+
+    def open_url_with_retry(self, url, retries=5, wait_time=15):
+        """
+        Tries to open a URL with retry logic in case of failure
+        Retries a specified number of times if the page fails to load
+        """
+        attempt = 0
+        while attempt < retries:
+            try:
+                # Trying to load the URL
+                logging.info(f"Attempting to load URL {url} (Attempt {attempt + 1}/{retries})")
+                self.driver.get(url)
+                logging.info(f"Page loaded successfully ({attempt + 1}/{retries}).")
+                return True 
+            except (TimeoutException, WebDriverException) as e:
+                 # Exception in case of a timeout or driver-related issue 
+                logging.error(f"Error loading page: {e}")
+                attempt += 1  
+                if attempt < retries:  
+                    logging.info(f"Retrying... ({attempt}/{retries})")
+                time.sleep(wait_time) 
+            except Exception as e:
+                # Unexpected errors 
+                logging.error(f"An unexpected error occurred: {e}")
+                break
+
+        # If all retry attempts fail and the page is still not loade
+        logging.error(f"Unable to load the page after {retries} attempts.")
+        return False
+
+
+
+    def close_popup_if_present(self):
+        """
+        Checks if a pop-up is present and tries to close it
+        """
+        try:
+            popup_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'No thanks') or contains(., 'Accept all') or contains(., 'Accept')]"))
+            )
+            popup_button.click()
+            logging.info("Pop-up has been closed")
+        except Exception as e:
+            logging.debug(f"No pop-up found or an error occurred: {e}")
+
+
+
     def play_random_video(self, video_name):
+        """
+        Automates the process of opening a browser, searching for a random video on YouTube, 
+        and recording video and audio
+        """
         start_time = time.time()
-        driver = None
         
         try:
             logging.info(f"Launching browser using driver at {driver_path}")
              # Create an instance of Options to configure the browser settings
             options = Options()
-            # It will open the browser window)
-            options.headless = False 
-            
-            driver = webdriver.Firefox(executable_path=driver_path, options=options)
+            options.headless = False # Open the browser window (not headless)
 
-            driver.set_page_load_timeout(10) # Set the page load timeout
+            self.driver = webdriver.Firefox(executable_path=driver_path, options=options)
+
+            self.driver.set_page_load_timeout(10) # Set page load timeout
             
-            # Maximizing the browser window
-            driver.maximize_window()
+            self.driver.maximize_window() # Maximizing the browser window
 
             # Navigate to YouTube
             url = "https://www.youtube.com"
             try:
                 logging.info(f"Navigating to {url}")
-                driver.get(url)
+                self.driver.get(url)
+                WebDriverWait(self.driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//input[@id='search']")))
+                logging.info("YouTube loaded successfully")
             except Exception as e:
+                # Retry mechanism if YouTube page fails to load
                 logging.error(f"Error loading YouTube: {e}. Retrying...")
-                time.sleep(8) 
-                try:
-                    driver.get(url)  # try again
-                except Exception as e:
-                    logging.error(f"Retry failed. Unable to access {url}: {e}")
-                    raise Exception("Cannot access YouTube")
+                time.sleep(8)
+                if not self.open_url_with_retry(url, retries=3, wait_time=5): 
+                    logging.error(f"Unable to access {url} after multiple retries")
+                    raise Exception("Cannot access YouTube after multiple retries")
 
             time.sleep(8)  # Waits for the page to load completely
+            
+            # Close any pop-ups that might appear as soon as YouTube is loaded
+            self.close_popup_if_present()
 
             try:
-                # Search for accept button
-                accept_button = WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Accept all') or contains(., 'Accept')]"))
-                )
-                accept_button.click()
-                logging.info("The cookie popup was successfully closed!")
-
+                # Find the search bar and search for a video
+                logging.info(f"Trying to search a video: {video_name}")
+                search_box = self.driver.find_element(By.NAME, "search_query")
+                logging.info(f"Found the search bar")
+                search_box.send_keys(video_name)
+                logging.info(f"Entered '{video_name}' into the search bar")
+                search_box.send_keys(Keys.RETURN)
+                logging.info(f"Pressed enter")
             except Exception as e:
-                logging.warning(f"No cookie popup found or an error occurred: {e}")
-
-            # Find the search bar and search for a video
-            logging.info(f"Searching for a video: {video_name}")
-            search_box = driver.find_element(By.NAME, "search_query")
-            logging.info(f"Found the search bar")
-            search_box.send_keys(video_name)
-            logging.info(f"Entered '{video_name}' into the search bar")
-            search_box.send_keys(Keys.RETURN)
-            logging.info(f"Pressed enter")
+                logging.error(f"Error occurred while searching for the video: {e}")
 
             # Waits for the results to load
-            WebDriverWait(driver, 20).until(
+            WebDriverWait(self.driver, 20).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//a[@id='video-title']"))
             )
 
             # Find a random video in the results and click on it
             try:
                 logging.info(f"Selecting a random video from the results")
-                videos = driver.find_elements(By.XPATH, "//a[@id='video-title']")
+                videos = self.driver.find_elements(By.XPATH, "//a[@id='video-title']")
                 random_video = random.choice(videos)  
                 random_video.click()
                 logging.info(f"A random video has been selected")
@@ -173,29 +233,38 @@ class Executer:
 
             # Move the cursor over the video fullscreen button and click on it
             logging.info("Trying to click the fullscreen button")
-            fullscreen_button = WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "button.ytp-fullscreen-button")))
+            try:
+                fullscreen_button = WebDriverWait(self.driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "button.ytp-fullscreen-button")))
 
-            ActionChains(driver).move_to_element(fullscreen_button).perform()
-            fullscreen_button.click()
-            logging.info("Fullscreen button clicked successfully")
+                ActionChains(self.driver).move_to_element(fullscreen_button).perform()
+                fullscreen_button.click()
+                logging.info("Fullscreen button clicked successfully")
+            except ElementNotInteractableException as e:
+                logging.error(f"Error interacting with fullscreen button: {e}")
+            
         
-
             # Wait or close after RECORDING_TIME_IN_SEC seconds
             while time.time() - start_time < RECORDING_TIME_IN_SEC and not stop_threads.is_set():
+                self.close_popup_if_present()  # #Close pop-ups if they appear
                 time.sleep(1)
         except Exception as e:
             logging.error(f"An error occurred during the YouTube video play process: {e}")
-            if driver:
-                logging.info("Closing browser due to error.")
-                driver.quit()
-            sys.exit(1)  # Close the script
-        finally:
-            if driver:
-                logging.info("Quitting the browser")
-                driver.quit()
 
+        finally:
+            # Ensure the browser is closed after the process completes
+            if self.driver:
+                logging.info("Quitting the browser")
+                self.driver.quit()
 
     def execute(self):
+        """
+        Main execution method for starting the recording process
+        - Cleans up resources
+        - Checks internet connection
+        - Starts threads for YouTube video playing, audio and video
+        - Stops the threads after a specified time
+        - Analyzes the audio file
+        """
         self.clean_up()
         logging.info("Cleanup has been completed")
 
@@ -236,7 +305,6 @@ class Executer:
             logging.error("Audio file does not exist. Skipping analysis.")
 
 
-
 class AudioRecord:
 
     OUTPUT_FILE_NAME = "audio.wav"
@@ -244,8 +312,13 @@ class AudioRecord:
     CHUNK_SIZE = 1024  # Capture audio in smaller chunks for better handling
 
     def record_audio(self):
+        """
+        Records audio from the default microphone and saves it to a file.
+        - Captures audio in chunks of size "CHUNK_SIZE"
+        - Saves the audio data as a ".wav" file
+        """
         # Select the default microphone with loopback
-        default_mic = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True)
+        default_mic = sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True) 
         
         if default_mic is None:
             logging.error("Could not find a suitable microphone for recording")
@@ -260,7 +333,7 @@ class AudioRecord:
 
             while time.time() - start_time < RECORDING_TIME_IN_SEC and not stop_threads.is_set():
                 chunk = mic.record(numframes=self.CHUNK_SIZE)
-                audio_data.append(chunk[:, 0])  # Use only the first channel
+                audio_data.append(chunk[:, 0])
 
         # Concatenate all captured audio chunks and save to file
         if audio_data:
@@ -272,43 +345,35 @@ class AudioRecord:
             logging.error("No audio data captured")
 
     @staticmethod
-    def analyze_audio_file(audio_filename, output_filename="audio_levels.csv", chunk_duration_sec=1):
+    def analyze_audio_file(audio_filename, output_filename="audio_levels.csv"):
+        """
+        Analyzes the audio file and calculates the average sound level in dB
+        - Reads the audio data from a ".wav" file.
+        - Computes RMS value and converts it to dB SPL for the entire file.
+        - Saves the result in a CSV file with the average sound level.
+        """
         # Read the WAV audio file
         sample_rate, data = wav.read(audio_filename)
 
-        # Extract audio data (if the audio is stereo, take only one channel)
+        # Extract audio data
         if len(data.shape) > 1:
-            data = data[:, 0]  # If stereo, take only the left channel
+            data = data[:, 0]  
 
         # Normalize audio data to the range [-1, 1]
         data = data / np.max(np.abs(data))
 
-        # Prepare the output CSV file
+        # Calculate the RMS value for the entire audio file
+        rms = np.sqrt(np.mean(data**2))
+
+        # Convert RMS to dB (SPL - Sound Pressure Level)
+        p0 = 20e-6 
+        spl = 20 * np.log10(rms / p0) if rms > 0 else -np.inf
+
+        # Save the result to a CSV file
         with open(output_filename, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["Time (s)", "Sound Level (dB)"])  # Write the header to the CSV file
-
-            # Process the audio file in chunks
-            num_samples_per_chunk = int(sample_rate * chunk_duration_sec)
-            num_chunks = len(data) // num_samples_per_chunk
-
-            for i in range(num_chunks):
-                # Extract a chunk of audio
-                start_sample = i * num_samples_per_chunk
-                end_sample = (i + 1) * num_samples_per_chunk
-                chunk = data[start_sample:end_sample]
-
-                # Calculate the RMS value for the chunk
-                rms = np.sqrt(np.mean(chunk**2))
-
-                # Convert RMS to dB (SPL - Sound Pressure Level)
-                p0 = 20e-6  # Reference sound pressure level (in Pa)
-                spl = 20 * np.log10(rms / p0) if rms > 0 else -np.inf
-
-                # Write the sound level in dB and the timestamp (in seconds) to the CSV file
-                time_in_seconds = i * chunk_duration_sec
-                writer.writerow([time_in_seconds, spl])
-
+            writer.writerow(["Average Sound Level (dB)"])
+            writer.writerow([spl])
 
         logging.info(f"Audio analysis saved to {output_filename}")
 
@@ -319,6 +384,10 @@ class VideoRecord:
     SCREEN_SIZE = tuple(pyautogui.size())
 
     def save_video(self, frames, screen_size, fps):
+        """
+        Saves a series of frames as a video file
+        - Uses OpenCV to write frames to a ".mp4" video file
+        """
         logging.info(f"Trying to save video")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video_writer = cv2.VideoWriter(self.OUTPUT_FILE_NAME, fourcc, fps, screen_size)
@@ -329,8 +398,13 @@ class VideoRecord:
         video_writer.release()
         logging.info(f"Video saved to {self.OUTPUT_FILE_NAME}")
 
-    # Record the screen
+
     def record_video(self):
+        """
+        Records the screen and saves the video
+        - Captures screenshots at regular intervals
+        - Stores the frames and saves them to a ".mp4" video file
+        """
         logging.info("Starting video recording.")
         frames = []
         timestamps = []
@@ -357,7 +431,6 @@ class VideoRecord:
 
 if __name__ == "__main__":
     # Instantiate AudioRecord and VideoRecord before passing to Executer
-    
     audio_record = AudioRecord()
     video_record = VideoRecord()
 
@@ -365,6 +438,8 @@ if __name__ == "__main__":
     executer = Executer(audio_record, video_record)
 
     # Execute the script
-    executer.execute()
-
-    logging.info("Script execution completed")
+    try:
+        executer.execute()
+        logging.info("The script was executed")
+    except KeyboardInterrupt:
+        logging.warning("Execution interrupted by user.")
