@@ -1,9 +1,12 @@
-Steps to Set Up the Environment
+===============================================================================
+===========================     YOUTUBE AUTOPLAY     ==========================
+===============================================================================
+Author: Talida-Manuela Bejinaru
 
-1. System Information
+1. System information:
 - Operating System: Ubuntu 18.04.6 LTS (running on VirtualBox)
 
-$ lsb_release -a
+lsb_release -a
 # Output:
 # No LSB modules are available.
 # Distributor ID:	Ubuntu
@@ -11,19 +14,18 @@ $ lsb_release -a
 # Release:	18.04
 # Codename:	bionic
 
-
-2. Python and Pip Versions
--Python was already installed on the system:
-
+Python version:
 $ python3 --version
 # Output: Python 3.6.9
 
-If Python3 is not already installed, follow these steps:
+================================================================================
+2. Setup installation:
+
+a. If python3 not installed:
 $ sudo apt update
 $ sudo apt install python3
 
--Pip version check and warning message
-
+b. If pip not installed:
 $ pip3 --version
 # Output:
 # WARNING: pip is being invoked by an old script wrapper. This will fail in a future version of pip.
@@ -36,8 +38,7 @@ Due to the warning, I will use python3 -m pip install <package> instead of pip3 
 If pip3 is not already installed, follow these steps:
 sudo apt install python3-pip
 
-3. Installing Required Libraries
-
+c. Libraries
 -Selenium
 python3 -m pip install selenium
 
@@ -55,11 +56,123 @@ python3 -m pip install python3-pyaudio
 Defaulting to user installation because normal site-packages is not writeable
 ERROR: Could not find a version that satisfies the requirement python3-pyaudio (from versions: none)
 ERROR: No matching distribution found for python3-pyaudio
-
 Issue: No compatible version found in pip for Python 3.6.
-Solution: Install via apt instead of pip
 
+Solution: Install via apt instead of pip
 sudo apt-get install python3-pyaudio
 
 -PyAutoGUI
 python3 -m pip install pyautogui
+
+-Soundcard
+pip3 install soundcard
+
+-ffmpeg
+pip3 install ffmpeg-python
+
+-scipy
+pip3 install scipy
+
+-soundfile
+python3 -m pip install soundfile
+
+-requests
+python3 -m pip install requests
+
+
+================================================================================
+3. Problems:
+
+a. 
+Traceback (most recent call last):
+  File "incerc2.py", line 1, in <module>
+    import soundcard as sc
+  File "/home/talida/.local/lib/python3.6/site-packages/soundcard/__init__.py", line 4, in <module>
+    from soundcard.pulseaudio import *
+  File "/home/talida/.local/lib/python3.6/site-packages/soundcard/pulseaudio.py", line 290, in <module>
+    _pulse = _PulseAudio()
+  File "/home/talida/.local/lib/python3.6/site-packages/soundcard/pulseaudio.py", line 101, in __init__
+    assert self._pa_context_get_state(self.context)==_pa.PA_CONTEXT_READY
+AssertionError
+
+Solution:
+sudo apt update
+sudo apt install pulseaudio
+
+b. 
+OpenCV(4.10.0) /tmp/pip-install-mrovq29y/opencv-python_b8b214f62fb94130a6f70b5bf657de4a/opencv/modules/videoio/src/cap_images.cpp:430: error: (-215:Assertion failed) !filename_pattern.empty() in function 'open'
+
+
+Traceback (most recent call last):
+  File "./incerc.py", line 27, in <module>
+    cv2.imshow("screenshot", frame)
+cv2.error: OpenCV(4.10.0) /tmp/pip-install-mrovq29y/opencv-python_b8b214f62fb94130a6f70b5bf657de4a/opencv/modules/highgui/src/window.cpp:1301: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'cvShowImage'
+
+Reason: 
+cv2.imshow() not supported anymore on Linux
+
+Solution:
+Install the next libraries:
+sudo apt-get update
+
+-libgtk22.0-dev
+sudo apt-get install libgtk2.0-dev pkg-config
+
+-reinstall opencv
+pip3 uninstall opencv-python
+pip3 install opencv-python
+
+c.
+When trying to install libgtk2.0-dev
+
+$sudo apt-get install libgtk2.0-dev pkg-config
+
+Some packages could not be installed. This may mean that you have
+requested an impossible situation or if you are using the unstable
+distribution that some required packages have not yet been created
+or been moved out of Incoming.
+The following information may help to resolve the situation:
+
+The following packages have unmet dependencies:
+ libgtk2.0-dev : Depends: libpango1.0-dev (>= 1.20) but it is not going to be installed
+                 Depends: libcairo2-dev but it is not going to be installed
+
+Reason: 
+Potential blocked packages (libpango1.0-dev and libcairo2-dev)
+
+Solution:
+i. Try to repair the packages:
+sudo apt-get update
+sudo apt-get install -f
+
+ii. If this is not working:
+opencv-python-headless must be version 4.5.4 for the program to run properly. So the solution was to change 
+the opencv-python version to be the same as opencv-python-headless. So in that case you can run:
+
+pip3 install opencv-python==4.5.4.60
+
+
+d.
+urllib3.exceptions.ReadTimeoutError
+
+Reason:
+This error occurs when the connection to the server times out, possibly
+due to resource limitations or a slow internet connection.
+
+Solution:
+I attempted to mitigate this error by configuring the browser options using Options in my script,
+allowing the browser to open and better manage resources. The code used for this approach is as follows:
+
+
+from selenium.webdriver.firefox.options import Options
+
+options = Options()
+options.headless = Falsew
+self.driver = webdriver.Firefox(executable_path=driver_path, options=options)
+
+However, the error persists because I am running the application on a virtual machine with limited resources
+(RAM, CPU). To work around this, I need to run the application multiple times. In an environment with limited
+resources, this error frequently occurs, and the adjustments made to the script were not sufficient to eliminate
+it entirely.
+
+
