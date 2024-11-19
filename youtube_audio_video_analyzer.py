@@ -52,8 +52,11 @@ if len(sys.argv) < 2:
 # Combine arguments into a single video name string
 search_arg = " ".join(sys.argv[1:])
 
-# Class for executing the main functionality (video/audio recording and web automation)
+
 class Executer:
+    """
+    Coordinates browser automation to play a random video and record audio and video.
+    """
 
     def __init__(self, audio_record, video_record):
         """
@@ -306,6 +309,9 @@ class Executer:
 
 
 class AudioRecord:
+    """
+    Handles the recording and analysis of audio from a microphone
+    """
 
     OUTPUT_FILE_NAME = "audio.wav"
     SAMPLE_RATE = 48000
@@ -379,6 +385,9 @@ class AudioRecord:
 
 
 class VideoRecord:
+    """
+    Handles the recording of the screen and saving it as a video file
+    """
 
     OUTPUT_FILE_NAME = "video.mp4"
     SCREEN_SIZE = tuple(pyautogui.size())
