@@ -55,7 +55,8 @@ search_arg = " ".join(sys.argv[1:])
 
 class Executer:
     """
-    Coordinates browser automation to play a random video and record audio and video.
+    Coordinates browser automation to play a random video, record audio and video
+    and analyze the audio file
     """
 
     def __init__(self, audio_record, video_record):
@@ -68,7 +69,10 @@ class Executer:
         self.audio_name = "audio.wav" # Default audio filename
         self.video_name = "video.mp4" # Default video filename
         self.audio_levels = "audio_levels.csv" # Default CSVfile for audio levels
-        self.driver = None # Selenium WebDriver instance
+        # Create an instance of Options to configure the browser settings
+        options = Options()
+        options.headless = False # Open the browser window (not headless)
+        self.driver = webdriver.Firefox(executable_path=driver_path, options=options) # Selenium WebDriver instance
 
 
     def clean_up(self):
@@ -146,7 +150,7 @@ class Executer:
                 logging.error(f"An unexpected error occurred: {e}")
                 break
 
-        # If all retry attempts fail and the page is still not loade
+        # If all retry attempts fail and the page is still not loaded
         logging.error(f"Unable to load the page after {retries} attempts.")
         return False
 
@@ -163,7 +167,7 @@ class Executer:
             popup_button.click()
             logging.info("Pop-up has been closed")
         except Exception as e:
-            logging.debug(f"No pop-up found or an error occurred: {e}")
+            logging.info(f"No pop-up found or an error occurred: {e}")
 
 
 
@@ -173,16 +177,12 @@ class Executer:
         and recording video and audio
         """
         start_time = time.time()
+
         
         try:
             logging.info(f"Launching browser using driver at {driver_path}")
-             # Create an instance of Options to configure the browser settings
-            options = Options()
-            options.headless = False # Open the browser window (not headless)
 
-            self.driver = webdriver.Firefox(executable_path=driver_path, options=options)
-
-            self.driver.set_page_load_timeout(10) # Set page load timeout
+            self.driver.set_page_load_timeout(30) # Set page load timeout
             
             self.driver.maximize_window() # Maximizing the browser window
 
@@ -193,13 +193,15 @@ class Executer:
                 self.driver.get(url)
                 WebDriverWait(self.driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//input[@id='search']")))
                 logging.info("YouTube loaded successfully")
+                time.sleep(15)
             except Exception as e:
                 # Retry mechanism if YouTube page fails to load
                 logging.error(f"Error loading YouTube: {e}. Retrying...")
                 time.sleep(8)
-                if not self.open_url_with_retry(url, retries=3, wait_time=5): 
+                if not self.open_url_with_retry(url, retries=3, wait_time=5):
                     logging.error(f"Unable to access {url} after multiple retries")
                     raise Exception("Cannot access YouTube after multiple retries")
+                     
 
             time.sleep(8)  # Waits for the page to load completely
             
@@ -243,21 +245,24 @@ class Executer:
                 fullscreen_button.click()
                 logging.info("Fullscreen button clicked successfully")
             except ElementNotInteractableException as e:
-                logging.error(f"Error interacting with fullscreen button: {e}")
+                logging.warning(f"Error interacting with fullscreen button: {e}")
             
         
             # Wait or close after RECORDING_TIME_IN_SEC seconds
             while time.time() - start_time < RECORDING_TIME_IN_SEC and not stop_threads.is_set():
-                self.close_popup_if_present()  # #Close pop-ups if they appear
+                self.close_popup_if_present()  # Close pop-ups if they appear
                 time.sleep(1)
         except Exception as e:
+            self.driver.quit()
             logging.error(f"An error occurred during the YouTube video play process: {e}")
+            sys.exit(1)
 
         finally:
             # Ensure the browser is closed after the process completes
             if self.driver:
                 logging.info("Quitting the browser")
                 self.driver.quit()
+
 
     def execute(self):
         """
@@ -275,6 +280,7 @@ class Executer:
         logging.info("Checking network connectivity...")
         if not self.check_internet_connection():
             logging.error("Network is unavailable")
+            self.driver.quit()
             sys.exit(1)
 
         # Create and start threads with the instance methods as targets
@@ -430,7 +436,7 @@ class VideoRecord:
 
         # Calculate dynamic FPS based on captured frames and time
         duration = timestamps[-1] if timestamps else RECORDING_TIME_IN_SEC
-        calculated_fps = len(frames) / duration if duration > 0 else 24.0
+        calculated_fps = len(frames) / duration if duration > 0 else 60.0
         logging.info(f"Recording completed")
 
         # Save the frames to a video file using calculated FPS
@@ -446,9 +452,5 @@ if __name__ == "__main__":
     # Pass instances to Executer
     executer = Executer(audio_record, video_record)
 
-    # Execute the script
-    try:
-        executer.execute()
-        logging.info("The script was executed")
-    except KeyboardInterrupt:
-        logging.warning("Execution interrupted by user.")
+    executer.execute()
+    logging.info("The script was executed")
